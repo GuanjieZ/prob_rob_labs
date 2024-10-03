@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="velocity" default="-3.0" />
+  <param name="vel_x" type="double" value="$(arg velocity)" />
+  <node pkg="prob_rob_labs" type="opendoor_movebot" name="opendoor_movebot" output="screen">
+  </node>
+</launch>

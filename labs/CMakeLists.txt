@@ -16,6 +16,9 @@ install(DIRECTORY launch worlds
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
+catkin_install_python(PROGRAMS bin/opendoor_movebot
+                      DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
 catkin_install_python(PROGRAMS bin/flaky_door_opener
                       DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env python
+from opendoor_movebot import opendoor_movebot
+
+if __name__ == '__main__':
+    opendoor_movebot.main()
