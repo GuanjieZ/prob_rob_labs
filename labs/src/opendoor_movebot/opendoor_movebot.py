@@ -2,55 +2,42 @@
 
 import rospy
 from geometry_msgs.msg import Twist
-from rosgraph_msgs.msg import Clock
 from std_msgs.msg import Float64
 
 class opendoor_movebot:
     def __init__(self):
         self.door_pub = rospy.Publisher('/hinged_glass_door/torque', Float64, queue_size=10)
         self.bot_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=10)
+        self.door_feature = rospy.Subscriber('/feature_mean', Float64, self.check_feature)
+        self.state = 'stop'
         self.rate = rospy.Rate(10)
-        rospy.Subscriber("/clock", Clock, self.clock_callback)
-        self.current_time = rospy.Time(0)
-        self.is_start_time = True
-        self.start_time = 0
-        self.duration = 0
-        self.op_time = 0
 
+    def check_feature(self, data):
+        # rospy.loginfo(data.data)
+        if data.data < 400:
+            self.state = 'move'
 
-
-    def clock_callback(self, msg):
-        if self.is_start_time:
-            self.start_time = msg.clock
-            self.duration = msg.clock - self.start_time
-            self.is_start_time = False
-        
-        else:
-            self.current_time = msg.clock
-            self.duration = self.current_time - self.start_time
-
-        self.publish()
-
-    def publish(self):
-        self.op_time = self.duration.to_sec()
-        if self.op_time > 0.0 and self.op_time <= 2.0:
-            self.door_pub.publish(Float64(5.0))
-        elif self.op_time > 2 and self.op_time <= 6:
+    def publish(self,event):
+        op_time = event.current_expected.to_sec()
+        if op_time <= 6.0:
+            self.door_pub.publish(Float64(3.0))
+        elif op_time > 8.0:
+            self.door_pub.publish(Float64(-3.0))
+            self.state = 'stop'
+        if self.state == 'move':
             move_bot = Twist()
-            move_bot.linear.x = rospy.get_param('vel_x')
+            move_bot.linear.x = 3
             self.bot_pub.publish(move_bot)
-        elif self.op_time > 6 and self.op_time <= 10:
-            move_bot = Twist()
-            move_bot.linear.x = 0
-            self.bot_pub.publish(move_bot)
-        else:
-            self.door_pub.publish(Float64(-5.0))
-
+            return
+        if self.state == 'stop':
+            stop_bot = Twist()
+            self.bot_pub.publish(stop_bot)
 
 def main():
     rospy.init_node('opendoor_movebot')
     bot = opendoor_movebot()
     rospy.loginfo('starting opendoor_movebot')
+    rospy.Timer(rospy.Duration(0.05), bot.publish)
     rospy.spin()
     rospy.loginfo('done')
 
