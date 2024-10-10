@@ -7,6 +7,7 @@
   <arg name="run_door_opener" default="false" />
   <arg name="run_image_viewer" default="false" />
   <arg name="run_vision_processor" default="false" />
+  <arg name="initial_x" default="-1.0" />
 
   <!-- Fully reuse jackal_and_door, but change the default world name
        to door_and_firetruck. -->
@@ -17,5 +18,6 @@
     <arg name="run_door_opener" value="$(arg run_door_opener)" />
     <arg name="run_image_viewer" default="$(arg run_image_viewer)" />
     <arg name="run_vision_processor" default="$(arg run_vision_processor)" />
+    <arg name="init_x" value="$(arg initial_x)" />
   </include>
 </launch>
