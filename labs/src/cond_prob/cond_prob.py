@@ -9,30 +9,35 @@ class prob:
     def __init__(self):
         self.door_pub = rospy.Publisher('/hinged_glass_door/torque', Float64, queue_size=10)
         self.door_feature = rospy.Subscriber('/feature_mean', Float64, self.record_data)
+        self.thresh_pub = rospy.Publisher('/Threshold', Float64, queue_size=1)
         self.state = 'stop'
+        self.threshold = 455.0
         self.data = 0
         self.z = []
     
     def record_data(self, data):
         #rospy.loginfo(data.data)
         self.data = data.data
-        if data.data < 440 and self.state == 'record':
+        if data.data < self.threshold and self.state == 'record':
             self.z.append(1)
-        elif data.data >= 440 and self.state == 'record':
+        elif data.data >= self.threshold and self.state == 'record':
             self.z.append(0)
 
     def calc_prob(self, event):
         op_time = event.current_expected.to_sec()
-        self.door_pub.publish(Float64(10))
+        if op_time < 6:
+            self.door_pub.publish(Float64(10))
+            return
         if op_time > 6:
             #rospy.loginfo("Start Recording")
             self.state = 'record'
-        if op_time > 7:
+        if self.state == 'record':
             rospy.loginfo(self.data)
             samples = np.array(self.z)
             probability = samples.sum()/samples.shape[0]
-            rospy.loginfo("Prob: " + str(probability))
-    
+            rospy.loginfo("Sample#" + str(samples.shape[0]) + " Prob: " + str(probability))
+            
+            self.thresh_pub.publish(Float64(self.threshold))
     def reset_world(self, event):
         reset = rospy.ServiceProxy('/gazebo/reset_world',Empty)
         reset()
