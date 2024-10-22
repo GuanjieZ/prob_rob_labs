@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import PoseStamped, TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped, Twist
 from gazebo_msgs.msg import LinkStates
 from std_msgs.msg import Header
 
@@ -13,18 +13,27 @@ class state:
 
     def pub(self, data):
         now = rospy.get_rostime()
+
+        for i in range(len(data.name)):
+            if data.name[i] == 'jackal::base_link':
+                link = i
+                break
         pose = PoseStamped(
             header = Header(
 	        stamp = now,
 	        frame_id = 'odom'
 	    ),
-            pose = data.pose[1]
+            pose = data.pose[link]
         )
-        
-        twist = TwistStamped()
-        twist.twist = data.twist[1]
-        twist.header = header
-        
+
+        twist = TwistStamped(
+            header = Header(
+                stamp = now,
+                frame_id = 'odom'
+            ),
+            twist = data.twist[link]
+        )
+
         self.pose_pub.publish(pose)
         self.twist_pub.publish(twist)
 
