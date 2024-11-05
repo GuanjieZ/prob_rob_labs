@@ -10,11 +10,14 @@ class state:
         self.sub = rospy.Subscriber('/gazebo/link_states', LinkStates, self.pub)
         self.pose_pub = rospy.Publisher('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
         self.twist_pub = rospy.Publisher('/jackal/ground_truth/twist', TwistStamped, queue_size=1)
-        self.cmd_vel_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size = 1)
+        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size = 1)
+        self.move_bot = Twist()
+        self.move_bot.linear.x = 1
+        self.move_bot.angular.z = 0.5
+
 
     def pub(self, data):
         now = rospy.get_rostime()
-
         for i in range(len(data.name)):
             if data.name[i] == 'jackal::base_link':
                 link = i
@@ -30,18 +33,13 @@ class state:
         twist = TwistStamped(
             header = Header(
                 stamp = now,
-                frame_id = 'odom'
+                frame_id = 'base_link'
             ),
             twist = data.twist[link]
         )
-
-        move_bot = Twist()
-        move_bot.linear.x = 1
-        move_bot.angular.z = 0.5
-
-        self.cmd_vel_pub.publish(move_bot)
         self.pose_pub.publish(pose)
         self.twist_pub.publish(twist)
+        self.cmd_vel_pub.publish(self.move_bot)
 
 def main():
     rospy.init_node('state')
