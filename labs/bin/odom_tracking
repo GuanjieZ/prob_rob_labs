@@ -1,0 +1,5 @@
+#!/usr/bin/env python
+from odom_tracking import odom_tracking
+
+if __name__ == '__main__':
+    odom_tracking.main()
