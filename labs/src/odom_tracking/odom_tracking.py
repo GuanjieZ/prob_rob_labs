@@ -5,12 +5,17 @@ import numpy as np
 from sensor_msgs.msg import JointState, Imu
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from tf.transformations import quaternion_from_euler
+
 
 class OdomTracker:
     def __init__(self):
         self.joint_state_sub = Subscriber('/joint_states', JointState)
         self.imu_sub = Subscriber('/imu/data', Imu)
         self.cmd_vel_sub = Subscriber('/cmd_vel', Twist)
+        self.odom_pub = rospy.Publisher('/ekf_odom', Odometry, queue_size=10)
+
         self.sync = ApproximateTimeSynchronizer([
                 self.joint_state_sub, self.imu_sub, self.cmd_vel_sub],
         queue_size = 10, slop = 0.04, allow_headerless = True)
@@ -20,7 +25,6 @@ class OdomTracker:
         self.prev_time = None
 
         self.state = np.zeros((5,1))
-
         self.sigma_x = np.eye(5) * 0.01
 
     def callback(self, joint_state_msg, imu_msg, cmd_vel_msg):
@@ -40,9 +44,9 @@ class OdomTracker:
 
         self.prev_time = current_time
 
-        self.predict(delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g)
+        self.ekf(delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g)
 
-    def predict(self, delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g):
+    def ekf(self, delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g):
         theta = self.state[0][0]
         u = np.array([[u_v], [u_w]])
         a_v = 0.1**(delta_t/0.45)
@@ -126,13 +130,56 @@ class OdomTracker:
         new_x = x_bar + np.dot(K, z - np.dot(C, x_bar))
         self.state = new_x
 
-        rospy.loginfo(self.state)
+        #rospy.loginfo(self.state)
 
         new_sigma_x = np.dot(
                 np.eye(5) - np.dot(K, C),
                 sigma_x_bar
         )
         self.sigma_x = new_sigma_x
+        rospy.loginfo(self.sigma_x)
+
+        self.publish(delta_t)
+
+    def publish(self, delta_t):
+        odom_msg = Odometry()
+        odom_msg.header.stamp = rospy.get_rostime()
+        odom_msg.header.frame_id = "odom"
+        odom_msg.child_frame_id = "base_link"
+
+        theta, x, y = self.state[0][0], self.state[1][0], self.state[2][0]
+        odom_msg.pose.pose.position.x = x
+        odom_msg.pose.pose.position.y = y
+        odom_msg.pose.pose.position.z = 0.0
+
+        q = quaternion_from_euler(0, 0, theta)
+        odom_msg.pose.pose.orientation.x = q[0]
+        odom_msg.pose.pose.orientation.y = q[1]
+        odom_msg.pose.pose.orientation.z = q[2]
+        odom_msg.pose.pose.orientation.w = q[3]
+
+        odom_msg.twist.twist.linear.x = self.state[3][0]
+        odom_msg.twist.twist.angular.z = self.state[4][0]
+
+        odom_msg.pose.covariance = ([
+                self.sigma_x[1][1], 0,                  0, 0, 0, 0,
+                0,                  self.sigma_x[2][2], 0, 0, 0, 0,
+                0,                  0,                  0, 0, 0, 0,
+                0,                  0,                  0, 0, 0, 0,
+                0,                  0,                  0, 0, 0, 0,
+                0,                  0,                  0, 0, 0, self.sigma_x[0][0]
+        ])
+
+        odom_msg.twist.covariance = ([
+                self.sigma_x[3][3], 0, 0, 0, 0, 0,
+                0,                  0, 0, 0, 0, 0,
+                0,                  0, 0, 0, 0, 0,
+                0,                  0, 0, 0, 0, 0,
+                0,                  0, 0, 0, 0, 0,
+                0,                  0, 0, 0, 0, self.sigma_x[4][4]
+        ])
+
+        self.odom_pub.publish(odom_msg)
 
 def main():
     rospy.init_node('odom_tracking')
