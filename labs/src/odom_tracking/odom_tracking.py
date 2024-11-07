@@ -93,13 +93,11 @@ class OdomTracker:
         #rospy.loginfo(x_bar)
 
         sigma_x_bar = (
-                np.dot(np.dot(G_x, self.sigma_x), G_x.T) +
-                np.dot(np.dot(G_u,      sigma_u), G_u.T)
+                G_x @ self.sigma_x @ G_x.T +
+                G_u @  sigma_u @ G_u.T
         )
 
        # rospy.loginfo(sigma_x_bar)
-
-
 
         C = np.array([
                 [0, 0, 0, 1 / self.r_w,  self.R / self.r_w],
