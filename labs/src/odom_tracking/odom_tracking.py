@@ -177,6 +177,7 @@ class OdomTracker:
                 0,                  0, 0, 0, 0, self.sigma_x[4][4]
         ])
 
+
         self.odom_pub.publish(odom_msg)
 
 def main():
