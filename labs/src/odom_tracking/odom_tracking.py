@@ -93,14 +93,22 @@ class OdomTracker:
         #rospy.loginfo(x_bar)
 
         sigma_x_bar = (
+<<<<<<< HEAD
                 np.dot(np.dot(G_x, self.sigma_x), G_x.T) +
                 np.dot(np.dot(G_u,      sigma_u), G_u.T)
+=======
+                G_x @ self.sigma_x @ G_x.T +
+                G_u @  sigma_u @ G_u.T
+>>>>>>> Tuni/main
         )
 
        # rospy.loginfo(sigma_x_bar)
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> Tuni/main
         C = np.array([
                 [0, 0, 0, 1 / self.r_w,  self.R / self.r_w],
                 [0, 0, 0, 1 / self.r_w,  self.R / self.r_w],
@@ -179,6 +187,10 @@ class OdomTracker:
                 0,                  0, 0, 0, 0, self.sigma_x[4][4]
         ])
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> Tuni/main
         self.odom_pub.publish(odom_msg)
 
 def main():
