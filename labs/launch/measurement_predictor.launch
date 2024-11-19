@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
 <launch>
   <node pkg="prob_rob_labs" type="measurement_predictor" name="measurement_predictor" output="screen">
+    <param name="landmark_x" value="0.0"/>
+    <param name="landmark_y" value="0.0"/>
+    <param name="landmark_r" value="0.1"/>
+    <param name="landmark_h" value="1.0"/>
+    <param name="landmark_color" value="cyan"/>
   </node>
 </launch>

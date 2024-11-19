@@ -93,17 +93,17 @@ class measurement_pred:
         self.x = 0; self.y = 0; self.theta = 0 # State vector
         self.f_x = 0; self.f_y = 0; self.c_x = 0; self.c_y = 0 # Camera projection matrix
         self.t_cx = 0; self.t_cy = 0; self.t_cz = 0; # Robot frame to camera frame translation
-        # self.x_l = rospy.get_param("landmark_x", 'default')
-        # self.y_l = rospy.get_param("landmark_y", 'default')
-        # self.r_l = rospy.get_param("landmark_r", 'default')
-        # self.h_l = rospy.get_param("landmark_h", 'default')
-        # self.color = rospy.get_param("landmark_color", 'default')
+        self.x_l = rospy.get_param('/measurement_predictor/landmark_x', 'default')
+        self.y_l = rospy.get_param('/measurement_predictor/landmark_y', 'default')
+        self.r_l = rospy.get_param('/measurement_predictor/landmark_r', 'default')
+        self.h_l = rospy.get_param('/measurement_predictor/landmark_h', 'default')
+        self.color = rospy.get_param('/measurement_predictor/landmark_color', 'default')
         self.CameraInfo_Retrieved = 0
         
         # Declare the subscribers and publishers
         self.gt_pose = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, self.update_mmt_pred, queue_size = 1)
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo, )
-        # self.mmt_pred_pub = rospy.Publisher('/'+self.color+'/pred_feature', Float64MultiArray, queue_size = 1)
+        self.mmt_pred_pub = rospy.Publisher('/'+self.color+'/pred_feature', Float64MultiArray, queue_size = 1)
         
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
@@ -115,35 +115,44 @@ class measurement_pred:
         
         # Initiate functions
         self.Hx, self.P_ip = init_functions()
-        
+        #rospy.loginfo(f"initialized")
     def update_CameraInfo(self, data):
+        #rospy.loginfo(f"update camerainfo called")
         self.f_x = data.K[0]
         self.c_y = data.K[2]
         self.f_y = data.K[4]
         self.c_y = data.K[5]
-        self.CameraInfo_Retrieved = 1
         
+        self.image_width = data.width
+        self.image_height = data.height
+        self.CameraInfo_Retrieved = 1
     
     def update_mmt_pred(self, data):
+        rospy.loginfo(f"updated measurement called")
         self.x = data.pose.position.x
         self.y = data.pose.position.y
         self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
                                             data.pose.orientation.z, data.pose.orientation.w])
-        
+                
+        #rospy.loginfo(f"start check")       
+        if self.CameraInfo_Retrieved == 1:
+            P_ip = self.P_ip(self.x, self.y, self.theta,
+                             self.f_x, self.f_y, self.c_x, self.c_y,
+                             self.x_l, self.y_l, self.r_l, self.h_l,
+                             self.t_cx, self.t_cy, self.t_cz)
 
-        
-        # if self.CameraInfo_Retrieved == 1:
-        #     P_ip = self.P_ip(self.x, self.y, self.theta,
-        #                      self.f_x, self.f_y, self.c_x, self.c_y,
-        #                      self.x_l, self.y_l, self.r_l, self.h_l,
-        #                      self.t_cx, self.t_cy, self.t_cz)
-        #     ##########################################################
-        #     # Then validate P_ip and publish using self.mmt_pred_pub #
-        #     ##########################################################
-        # else:
-        #     return
-        
-
+            
+            valid_features = []
+            for i in range(0, 8, 2):
+                x_pixel = P_ip[i]
+                y_pixel = P_ip[i+1]
+                if 0 <= x_pixel <= image_width and 0 <= y_pixel <= image_height: 
+                    valid_features.append((x_pixel, y_pixel))
+            
+            if valid_features:
+                msg = Float64MultiArray()
+                msg.data = [point for feature in valid_features for point in feature]
+                self.mmt_pred_pub.publish(msg)
 
 def main():
     rospy.init_node('measurement_predictor')
