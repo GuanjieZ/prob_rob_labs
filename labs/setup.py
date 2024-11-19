@@ -9,11 +9,7 @@ def read(fname):
 
 # fetch values from package.xml
 setup_args = generate_distutils_setup(
-<<<<<<< HEAD
-    packages=['image_mean_feature_x', 'flaky_door_opener', 'opendoor_movebot', 'cond_prob', 'state', 'odom_tracking', 'measurement_predictor'],
-=======
-    packages=['image_mean_feature_x', 'flaky_door_opener', 'opendoor_movebot', 'cond_prob', 'state', 'odom_tracking', 'calc_error'],
->>>>>>> Tuni/main
+    packages=['image_mean_feature_x', 'flaky_door_opener', 'opendoor_movebot', 'cond_prob', 'state', 'odom_tracking', 'calc_error', 'measurement_predictor'],
     package_dir={'': 'src'},
     platforms=['ROS'],
     long_description="Python nodes for Probabilistic Robotics lab"

@@ -15,8 +15,6 @@ class state:
         self.sub = rospy.Subscriber('/gazebo/link_states', LinkStates, self.pub)
         self.pose_pub = rospy.Publisher('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
         self.twist_pub = rospy.Publisher('/jackal/ground_truth/twist', TwistStamped, queue_size=1)
-<<<<<<< HEAD
-<<<<<<< HEAD
         self.cmd_vel_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size = 1)
         self.move_bot = Twist()
         self.move_bot.linear.x = 0
@@ -24,30 +22,10 @@ class state:
 
     def pub(self, data):
         now = rospy.get_rostime()
-=======
-        self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size = 1)
-        self.move_bot = Twist()
-        self.move_bot.linear.x = 1
-        self.move_bot.angular.z = 0.5
-
-
-    def pub(self, data):
-        now = rospy.get_rostime()
-=======
-        #self.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size = 1)
-        self.move_bot = Twist()
-        #self.move_bot.linear.x = 1
-        #self.move_bot.angular.z = 0.5
-
-
-    def pub(self, data):
-        now = rospy.get_rostime()
->>>>>>> Tuni/main
         for i in range(len(data.name)):
             if data.name[i] == 'jackal::base_link':
                 link = i
                 break
->>>>>>> Lab 4 Assignment 6
         pose = PoseStamped(
             header = Header(
 	        stamp = now,
@@ -58,30 +36,15 @@ class state:
 
         twist = TwistStamped(
             header = Header(
-<<<<<<< HEAD
 	        stamp = now,
 	        frame_id = 'base_link'
 	    ),
             twist = data.twist[find_frame_index(data.name, 'base_link')]
         )
 
-        #self.cmd_vel_pub.publish(self.move_bot)
-=======
-                stamp = now,
-                frame_id = 'base_link'
-            ),
-            twist = data.twist[link]
-        )
-<<<<<<< HEAD
->>>>>>> Lab 4 Assignment 6
-        self.pose_pub.publish(pose)
-        self.twist_pub.publish(twist)
-        self.cmd_vel_pub.publish(self.move_bot)
-=======
         self.pose_pub.publish(pose)
         self.twist_pub.publish(twist)
         #self.cmd_vel_pub.publish(self.move_bot)
->>>>>>> Tuni/main
 
 def main():
     rospy.init_node('state')
