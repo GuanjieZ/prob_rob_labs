@@ -1,11 +1,5 @@
 #!/usr/bin/env python
 
-###########################################
-# Unfinished tasks for A3:
-#   1. modify the launch file to set parameter for landmark(x, y, r, h, color)
-#   2. validate the calculated P_ip and then publish
-
-
 import rospy
 from sympy import symbols, Matrix, sin, cos, atan2, simplify, lambdify
 from geometry_msgs.msg import PoseStamped, TwistStamped, Twist
@@ -84,7 +78,7 @@ def init_functions():
     Hx_func = lambdify((x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y), Hx)
 
     P_ip_func = lambdify((x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y), P_ip)
-    
+    #rospy.loginfo(f"P_ip_func: {P_ip_func}")
     return Hx_func, P_ip_func
 
 class measurement_pred:
@@ -99,10 +93,13 @@ class measurement_pred:
         self.h_l = rospy.get_param('/measurement_predictor/landmark_h', 'default')
         self.color = rospy.get_param('/measurement_predictor/landmark_color', 'default')
         self.CameraInfo_Retrieved = 0
-        
+
+        # Initiate functions
+        self.Hx, self.P_ip = init_functions()
+
         # Declare the subscribers and publishers
-        self.gt_pose = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, self.update_mmt_pred, queue_size = 1)
-        self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo, )
+        self.gt_pose = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, self.update_mmt_pred)
+        self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
         self.mmt_pred_pub = rospy.Publisher('/'+self.color+'/pred_feature', Float64MultiArray, queue_size = 1)
         
         # Create tf listener and initiate transform parameters
@@ -112,12 +109,8 @@ class measurement_pred:
         self.t_cx = trans.transform.translation.x
         self.t_cy = trans.transform.translation.y
         self.t_cz = trans.transform.translation.z
-        
-        # Initiate functions
-        self.Hx, self.P_ip = init_functions()
-        #rospy.loginfo(f"initialized")
+
     def update_CameraInfo(self, data):
-        #rospy.loginfo(f"update camerainfo called")
         self.f_x = data.K[0]
         self.c_y = data.K[2]
         self.f_y = data.K[4]
@@ -128,20 +121,17 @@ class measurement_pred:
         self.CameraInfo_Retrieved = 1
     
     def update_mmt_pred(self, data):
-        rospy.loginfo(f"updated measurement called")
         self.x = data.pose.position.x
         self.y = data.pose.position.y
         self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
                                             data.pose.orientation.z, data.pose.orientation.w])
-                
-        #rospy.loginfo(f"start check")       
+                   
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
-                             self.f_x, self.f_y, self.c_x, self.c_y,
-                             self.x_l, self.y_l, self.r_l, self.h_l,
-                             self.t_cx, self.t_cy, self.t_cz)
-
-            
+                             self.t_cx, self.t_cy, self.t_cz, self.x_l,
+                             self.y_l, self.r_l, self.h_l, self.f_x,
+                             self.f_y, self.c_x, self.c_y)
+            rospy.loginfo(f"P_ip: {P_ip}")
             valid_features = []
             for i in range(0, 8, 2):
                 x_pixel = P_ip[i]
