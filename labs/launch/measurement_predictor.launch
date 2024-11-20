@@ -1,10 +1,16 @@
 <?xml version="1.0"?>
 <launch>
-  <node pkg="prob_rob_labs" type="measurement_predictor" name="measurement_predictor" output="screen">
-    <param name="landmark_x" value="0.0"/>
-    <param name="landmark_y" value="0.0"/>
-    <param name="landmark_r" value="0.1"/>
-    <param name="landmark_h" value="1.0"/>
-    <param name="landmark_color" value="cyan"/>
+  <arg name="color" default="red" />
+  <arg name="x" default="8.5" />
+  <arg name="y" default="-5.0" />
+  <arg name="r" default="0.1" />
+  <arg name="h" default="0.5" />
+  
+  <node pkg="prob_rob_labs" type="measurement_predictor" name="$(arg color)_mmt_pred" output="screen">
+    <param name="x" value="$(arg x)" type="double" />
+    <param name="y" value="$(arg y)" type="double" />
+    <param name="r" value="$(arg r)" type="double" />
+    <param name="h" value="$(arg h)" type="double" />
+    <param name="color" value="$(arg color)" type="string" />
   </node>
 </launch>
