@@ -8,7 +8,7 @@ import numpy as np
 
 class CorrespMatcher:
     def __init__(self):
-        self.color = rospy.get_param('/corresp_matcher/landmark_color', 'default')
+        self.color = rospy.get_param('~color', 'red')
 
         self.act_feature_sub = Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped)
         self.pred_feature_sub = Subscriber('/'+self.color+'/pred_feature', Float64MultiArray)
@@ -38,7 +38,7 @@ class CorrespMatcher:
 
         corresp_msg = Float64MultiArray()
         corresp_msg.data = distances
-        self.pub_corresp.publish(corresp_msg)
+        self.corresp_pub.publish(corresp_msg)
 
 
 def main():

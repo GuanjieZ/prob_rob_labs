@@ -29,7 +29,7 @@ class state:
         pose = PoseStamped(
             header = Header(
 	        stamp = now,
-	        frame_id = 'map'
+	        frame_id = 'odom'
 	    ),
             pose = data.pose[find_frame_index(data.name, 'base_link')]
         )

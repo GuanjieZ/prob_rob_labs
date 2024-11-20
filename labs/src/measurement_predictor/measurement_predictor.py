@@ -110,7 +110,7 @@ class measurement_pred:
 
     def update_CameraInfo(self, data):
         self.f_x = data.P[0]
-        self.c_y = data.P[2]
+        self.c_x = data.P[2]
         self.f_y = data.P[5]
         self.c_y = data.P[6]
         
@@ -127,11 +127,11 @@ class measurement_pred:
         # rospy.loginfo(self.y)
                    
         if self.CameraInfo_Retrieved == 1:
-            P_ip = self.P_ip(0, 0, 0,
+            P_ip = self.P_ip(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
                              self.x_l, self.y_l, self.r_l, self.h_l,
                              self.f_x, self.f_y, self.c_x, self.c_y)
-            rospy.loginfo(f"P_ip: {P_ip}")
+            #rospy.loginfo(f"P_ip: {P_ip}")
             valid_features = []
             valid_features_flag = 0
             for i in range(0, 8, 2):

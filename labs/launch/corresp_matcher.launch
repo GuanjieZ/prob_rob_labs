@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
 <launch>
+  <arg name="color" default="red" />
+
   <node pkg="prob_rob_labs" type="corresp_matcher" name="corresp_matcher" output="screen">
-    <param name="landmark_color" value="cyan"/>
+    <param name="color" value="$(arg color)" type="string" />
   </node>
 </launch>
