@@ -70,7 +70,7 @@ def init_euation():
     
     return Hx_func, P_ip_func
 
-P_ip, Hx = init_euation()
+Hx, P_ip = init_euation()
 
 result = Hx(1.0, 2.0, 0.5, 0.1, 0.2, 0.3, 4.0, 5.0, 1.2, 3.3, 500, 500, 250, 250)
 print("Evaluated result of Hx_func:", result)
