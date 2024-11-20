@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<launch>
+  <node pkg="prob_rob_labs" type="corresp_matcher" name="corresp_matcher" output="screen">
+    <param name="landmark_color" value="cyan"/>
+  </node>
+</launch>
