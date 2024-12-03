@@ -16,6 +16,9 @@ install(DIRECTORY launch worlds
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
+catkin_install_python(PROGRAMS bin/satellite_simu
+                      DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
 catkin_install_python(PROGRAMS bin/corresp_matcher
                       DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 

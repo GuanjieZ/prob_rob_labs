@@ -37,7 +37,7 @@ def init_functions():
 
     T_ro = Matrix([[ 0,  0, 1, t_cx],
                    [-1,  0, 0, t_cy],
-                   [ 0, -1, 0, t_cz],
+                   [ 0, -1, 0, t_cz+0.05],
                    [ 0,  0, 0, 1]    
                   ])
 
@@ -80,16 +80,16 @@ def init_functions():
     return Hx_func, P_ip_func
 
 class measurement_pred:
-    def __init__(self):     
+    def __init__(self, color, x, y, r, h):     
         # Initiate the parameters
+        self.color = color
         self.x = 0; self.y = 0; self.theta = 0 # State vector
         self.f_x = 0; self.f_y = 0; self.c_x = 0; self.c_y = 0 # Camera projection matrix
         self.t_cx = 0; self.t_cy = 0; self.t_cz = 0; # Robot frame to camera frame translation
-        self.x_l = rospy.get_param('~x', 8.5)
-        self.y_l = rospy.get_param('~y', -5.0)
-        self.r_l = rospy.get_param('~r', 0.1)
-        self.h_l = rospy.get_param('~h', 0.5)
-        self.color = rospy.get_param('~color', 'red')
+        self.x_l = x
+        self.y_l = y
+        self.r_l = r
+        self.h_l = h
         self.CameraInfo_Retrieved = 0
 
         # Initiate functions
@@ -98,7 +98,7 @@ class measurement_pred:
         # Declare the subscribers and publishers
         self.gt_pose = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, self.update_mmt_pred)
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
-        self.mmt_pred_pub = rospy.Publisher('/'+self.color+'/pred_feature', Float64MultiArray, queue_size = 1)
+        self.mmt_pred_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
         
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
@@ -149,7 +149,8 @@ class measurement_pred:
 def main():
     rospy.init_node('measurement_predictor')
     rospy.loginfo('starting measurement_predictor')
-    measurement_pred()
+    landmarks = rospy.get_param("landmark")
+    predictors = [measurement_pred(**landmark) for landmark in landmarks]
     rospy.spin()
     rospy.loginfo('done')
 

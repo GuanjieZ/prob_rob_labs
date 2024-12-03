@@ -1,16 +1,9 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="color" default="red" />
-  <arg name="x" default="8.5" />
-  <arg name="y" default="-5.0" />
-  <arg name="r" default="0.1" />
-  <arg name="h" default="0.5" />
+  <rosparam file="$(find prob_rob_labs)/config/landmark.yaml" command="load"/>
   
-  <node pkg="prob_rob_labs" type="measurement_predictor" name="$(arg color)_mmt_pred" output="screen">
-    <param name="x" value="$(arg x)" type="double" />
-    <param name="y" value="$(arg y)" type="double" />
-    <param name="r" value="$(arg r)" type="double" />
-    <param name="h" value="$(arg h)" type="double" />
-    <param name="color" value="$(arg color)" type="string" />
-  </node>
+  <node pkg="prob_rob_labs" type="measurement_predictor" name="mmt_pred" output="screen"/>
+  <!-- Launch the state publisher node-->
+  <include file="$(find prob_rob_labs)/launch/state.launch"/>
+
 </launch>

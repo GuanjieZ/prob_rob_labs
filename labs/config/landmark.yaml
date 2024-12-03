@@ -1,31 +1,27 @@
 landmark:
-  - name: "red"
+  - color: "red"
     x: 8.5
     y: -5.0
     r: 0.1
     h: 0.5
-    color: "red"
-  - name: "green"
+  - color: "green"
     x: 8.5
     y: 5.0
     r: 0.1
     h: 0.5
-    color: "green"
-  - name: "yellow"
+  - color: "yellow"
     x: 11.5
     y: 5.0
     r: 0.1
     h: 0.5
-    color: "yellow"
-  - name: "magenta"
+  - color: "magenta"
     x: 11.5
     y: -5.0
     r: 0.1
     h: 0.5
-    color: "magenta"
-  - name: "cyan"
+  - color: "cyan"
     x: 0.0
     y: 0.0
     r: 0.1
     h: 0.5
-    color: "cyan"
+
