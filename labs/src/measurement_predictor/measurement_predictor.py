@@ -8,7 +8,10 @@ from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Float64MultiArray
 from tf.transformations import euler_from_quaternion
 import tf2_ros
-
+from opencv_apps.msg import Point2DArrayStamped
+import numpy as np
+from copy import copy
+from message_filters import ApproximateTimeSynchronizer, Subscriber
 
 def init_functions():
     x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y \
@@ -79,7 +82,7 @@ def init_functions():
     P_ip_func = lambdify((x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y), P_ip)
     return Hx_func, P_ip_func
 
-class measurement_pred:
+class MeasurementModel:
     def __init__(self, color, x, y, r, h):     
         # Initiate the parameters
         self.color = color
@@ -96,10 +99,14 @@ class measurement_pred:
         self.Hx, self.P_ip = init_functions()
 
         # Declare the subscribers and publishers
-        self.gt_pose = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, self.update_mmt_pred)
+        self.gt_pose = Subscriber('/jackal/ground_truth/pose', PoseStamped)
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
-        self.mmt_pred_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
-        
+        #self.mmt_pred_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
+        self.act_feature_sub = Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped)
+
+        self.sync = ApproximateTimeSynchronizer([self.gt_pose, self.act_feature_sub], queue_size = 1, slop = 0.1, allow_headerless = True)
+        self.sync.registerCallback(self.measurement)
+
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer)
@@ -117,14 +124,31 @@ class measurement_pred:
         self.image_width = data.width
         self.image_height = data.height
         self.CameraInfo_Retrieved = 1
-    
-    def update_mmt_pred(self, data):
+    '''
+    def jacobian(self, data):
+        self.x = data.pose.position.x
+        self.y = data.pose.position.y
+        __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
+                                                    data.pose.orientation.z, data.pose.orientation.w]
+
+        Hx = self.Hx(self.x, self.y, self.theta,
+                             self.t_cx, self.t_cy, self.t_cz, 
+                             self.x_l, self.y_l, self.r_l, self.h_l,
+                             self.f_x, self.f_y, self.c_x, self.c_y)
+        return Hx
+    '''
+    def measurement(self, data, actual_feature_msg):
         self.x = data.pose.position.x
         self.y = data.pose.position.y
         __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
                                                     data.pose.orientation.z, data.pose.orientation.w])
         
         # rospy.loginfo(self.y)
+        Hx = self.Hx(self.x, self.y, self.theta,
+                             self.t_cx, self.t_cy, self.t_cz, 
+                             self.x_l, self.y_l, self.r_l, self.h_l,
+                             self.f_x, self.f_y, self.c_x, self.c_y)
+
                    
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
@@ -142,15 +166,54 @@ class measurement_pred:
                     valid_features_flag += 1
 
             if valid_features_flag >= 4:
-                msg = Float64MultiArray()
-                msg.data = [point for feature in valid_features for point in feature]
-                self.mmt_pred_pub.publish(msg)
+                #msg = Float64MultiArray()
+                #msg.data = [point for feature in valid_features for point in feature]
+                #self.mmt_pred_pub.publish(msg)
+	        # Exit if less than 4 points
+                if len(act_feature_msg.points) < 4:
+                    #rospy.loginfo("exit")
+                    return
+
+                act_pixels = []
+                for point in act_feature_msg.points:
+                    act_pixels.append((point.x, point.y))
+                act_pixels = np.array(act_pixels)
+
+                pred_pixels = np.array(pred_feature_msg.data).reshape(-1, 2)
+
+                act_pixels = act_pixels.tolist()
+                pred_pixels = pred_pixels.tolist()
+
+                distances = []
+                ordered_error = copy(pred_pixels)
+                for i in range(len(act_pixels)):
+                    min_dist = float('inf')
+
+                    for point in pred_pixels:
+                        dist = np.linalg.norm(np.array(act_pixels[i]) - np.array(point))
+                        if dist < min_dist:
+                            min_dist = dist
+                            ordered_error[i] = np.array(act_pixels[i]) - np.array(point)
+
+                    distances.append(min_dist)
+
+                ordered_error = np.array(ordered_error).flatten().tolist()
+
+        variances = [
+	    24.3121, 0.2612, 22.4337, 0.2081,
+	    25.3811, 2.4115, 25.4867, 17.9422
+	]
+
+        measurement_covariance = np.zeros((8,8))
+        np.fill_diagonal(measurement_covariance, variances)
+
+        return act_pixels, pred_pixels, ordered_error, measurement_covariance, Hx
 
 def main():
     rospy.init_node('measurement_predictor')
     rospy.loginfo('starting measurement_predictor')
     landmarks = rospy.get_param("landmark")
-    predictors = [measurement_pred(**landmark) for landmark in landmarks]
+    predictors = [MeasurementModel(**landmark) for landmark in landmarks]
     rospy.spin()
     rospy.loginfo('done')
 
