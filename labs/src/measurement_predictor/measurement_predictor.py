@@ -124,32 +124,29 @@ class MeasurementModel:
         self.image_width = data.width
         self.image_height = data.height
         self.CameraInfo_Retrieved = 1
-    '''
+    
     def jacobian(self, data):
         self.x = data.pose.position.x
         self.y = data.pose.position.y
         __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
-                                                    data.pose.orientation.z, data.pose.orientation.w]
+                                                    data.pose.orientation.z, data.pose.orientation.w])
 
         Hx = self.Hx(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
                              self.x_l, self.y_l, self.r_l, self.h_l,
                              self.f_x, self.f_y, self.c_x, self.c_y)
         return Hx
-    '''
-    def measurement(self, data, actual_feature_msg):
+    
+    def measurement(self, data, act_feature_msg):
         self.x = data.pose.position.x
         self.y = data.pose.position.y
         __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
                                                     data.pose.orientation.z, data.pose.orientation.w])
         
         # rospy.loginfo(self.y)
-        Hx = self.Hx(self.x, self.y, self.theta,
-                             self.t_cx, self.t_cy, self.t_cz, 
-                             self.x_l, self.y_l, self.r_l, self.h_l,
-                             self.f_x, self.f_y, self.c_x, self.c_y)
+        Hx = self.jacobian(data)
+        #rospy.loginfo(f"Hx: {Hx}")
 
-                   
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
@@ -178,8 +175,10 @@ class MeasurementModel:
                 for point in act_feature_msg.points:
                     act_pixels.append((point.x, point.y))
                 act_pixels = np.array(act_pixels)
+                #rospy.loginfo(f"Actual feature pixels: {act_pixels}")
 
-                pred_pixels = np.array(pred_feature_msg.data).reshape(-1, 2)
+                pred_pixels = np.array(valid_features).reshape(-1, 2)
+                #rospy.loginfo(f"Predicted feature pixels: {pred_pixels}")
 
                 act_pixels = act_pixels.tolist()
                 pred_pixels = pred_pixels.tolist()
@@ -197,6 +196,7 @@ class MeasurementModel:
 
                     distances.append(min_dist)
 
+                #rospy.loginfo(f"Ordered error: {ordered_error}") 
                 ordered_error = np.array(ordered_error).flatten().tolist()
 
         variances = [
@@ -206,6 +206,7 @@ class MeasurementModel:
 
         measurement_covariance = np.zeros((8,8))
         np.fill_diagonal(measurement_covariance, variances)
+        #rospy.loginfo(f"Measurement covariance: {measurement_covariance}")
 
         return act_pixels, pred_pixels, ordered_error, measurement_covariance, Hx
 
