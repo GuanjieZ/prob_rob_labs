@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import rospy
-from sympy import symbols, Matrix, sin, cos, atan2, simplify, lambdify
+from sympy import symbols, Matrix, sin, cos, atan2, simplify, lambdify, zeros
 from geometry_msgs.msg import PoseStamped, TwistStamped, Twist
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import CameraInfo
@@ -10,8 +10,16 @@ from tf.transformations import euler_from_quaternion
 import tf2_ros
 from opencv_apps.msg import Point2DArrayStamped
 import numpy as np
-from copy import copy
+from copy import deepcopy
 from message_filters import ApproximateTimeSynchronizer, Subscriber
+from nav_msgs.msg import Odometry
+import threading
+from collections import deque
+
+global_lock = threading.Lock()
+
+# Define the global variables for prediction x_bar, sigma_bar and time_stamp
+x_bar = 0; sigma_bar = 0; odom_queue = deque(maxlen=10); time_stamp = 0; odom_Retrieved = 0
 
 def init_functions():
     x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y \
@@ -40,7 +48,7 @@ def init_functions():
 
     T_ro = Matrix([[ 0,  0, 1, t_cx],
                    [-1,  0, 0, t_cy],
-                   [ 0, -1, 0, t_cz+0.05],
+                   [ 0, -1, 0, t_cz],
                    [ 0,  0, 0, 1]    
                   ])
 
@@ -84,8 +92,13 @@ def init_functions():
 
 class MeasurementModel:
     def __init__(self, color, x, y, r, h):     
+        global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
+        # Creating a lock
+        self.lock = threading.Lock()
+        
         # Initiate the parameters
         self.color = color
+        rospy.loginfo(f"instance created for: {self.color}")
         self.x = 0; self.y = 0; self.theta = 0 # State vector
         self.f_x = 0; self.f_y = 0; self.c_x = 0; self.c_y = 0 # Camera projection matrix
         self.t_cx = 0; self.t_cy = 0; self.t_cz = 0; # Robot frame to camera frame translation
@@ -94,18 +107,16 @@ class MeasurementModel:
         self.r_l = r
         self.h_l = h
         self.CameraInfo_Retrieved = 0
-
+        self.odom = Odometry()
+        
         # Initiate functions
         self.Hx, self.P_ip = init_functions()
 
         # Declare the subscribers and publishers
-        self.gt_pose = Subscriber('/jackal/ground_truth/pose', PoseStamped)
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
-        #self.mmt_pred_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
-        self.act_feature_sub = Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped)
-
-        self.sync = ApproximateTimeSynchronizer([self.gt_pose, self.act_feature_sub], queue_size = 1, slop = 0.1, allow_headerless = True)
-        self.sync.registerCallback(self.measurement)
+        while(self.CameraInfo_Retrieved == 0): pass # Wait for CameraInfo
+        #self.ekf_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
+        self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=1)
 
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
@@ -114,6 +125,7 @@ class MeasurementModel:
         self.t_cx = trans.transform.translation.x
         self.t_cy = trans.transform.translation.y
         self.t_cz = trans.transform.translation.z
+        
 
     def update_CameraInfo(self, data):
         self.f_x = data.P[0]
@@ -125,96 +137,184 @@ class MeasurementModel:
         self.image_height = data.height
         self.CameraInfo_Retrieved = 1
     
-    def jacobian(self, data):
-        self.x = data.pose.position.x
-        self.y = data.pose.position.y
-        __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
-                                                    data.pose.orientation.z, data.pose.orientation.w])
+    def prediction(self, odom, corner_msg):
+        global x_bar, sigma_bar, time_stamp, odom_Retrieved
+        if odom_Retrieved == 1:
+            
+            dt = corner_msg.header.stamp.to_sec() - time_stamp.to_sec()
+            # rospy.loginfo(f"feature_{self.color}: {corner_msg.header.stamp.to_sec()}, time_stamp: {time_stamp.to_sec()} gap:{dt}")
+            # Update predictions if dt is not 0
+            if dt != 0:
+                x = odom.pose.pose.position.x
+                y = odom.pose.pose.position.y
+                __, __, theta = euler_from_quaternion([odom.pose.pose.orientation.x, odom.pose.pose.orientation.y, 
+                                                       odom.pose.pose.orientation.z, odom.pose.pose.orientation.w])
+                omega = odom.twist.twist.angular.z
+                vel = odom.twist.twist.linear.x
+                # rospy.loginfo(f"t-1: {[x, y, theta]}")
+                
+                G_t = Matrix([[1, 0, -vel/omega*cos(theta)+vel/omega*cos(theta+dt*omega)], 
+                              [0, 1, -vel/omega*sin(theta)+vel/omega*sin(theta+dt*omega)],
+                              [0, 0, 1]
+                            ])
+                
+                V_t_0_0 = (-sin(theta)+sin(theta+omega*dt))/omega
+                V_t_0_1 = vel*(sin(theta)-sin(theta+omega*dt)/omega**2) + \
+                          vel*cos(theta+omega*dt)*dt/omega
+                V_t_1_0 = (cos(theta)-cos(theta+omega*dt))/omega
+                V_t_1_1 = -vel*(cos(theta)-cos(theta+omega*dt)/omega**2) + \
+                          vel*sin(theta+omega*dt)*dt/omega
+                V_t = Matrix([[V_t_0_0, V_t_0_1],
+                              [V_t_1_0, V_t_1_1],
+                              [0,       dt]
+                            ])
+                
+                M_t = Matrix([[0.01*vel**2+0.01*omega**2, 0                        ],
+                              [0,                         0.01*vel**2+0.01*omega**2]
+                            ])
+                
+                x_bar = Matrix([[x],[y],[theta]]) + \
+                        Matrix([[-vel/omega*sin(theta) + vel/omega*sin(theta+omega*dt)],
+                                [vel/omega*cos(theta) - vel/omega*cos(theta+omega*dt)],
+                                [omega*dt]
+                              ])
+                        
+                sigma_t_1_full = Matrix(6, 6, odom.pose.covariance)
+                sigma_t_1 = sigma_t_1_full.extract([0, 1, 5], [0, 1, 5])
+                
+                sigma_bar = G_t*sigma_t_1*G_t.T + V_t*M_t*V_t.T
+                # rospy.loginfo(f"sigma_bar: {sigma_bar}")
+                # rospy.loginfo(f"t: {x_bar.tolist()}")
+            time_stamp = corner_msg.header.stamp
 
-        Hx = self.Hx(self.x, self.y, self.theta,
-                             self.t_cx, self.t_cy, self.t_cz, 
-                             self.x_l, self.y_l, self.r_l, self.h_l,
-                             self.f_x, self.f_y, self.c_x, self.c_y)
-        return Hx
     
-    def measurement(self, data, act_feature_msg):
-        self.x = data.pose.position.x
-        self.y = data.pose.position.y
-        __, __, self.theta = euler_from_quaternion([data.pose.orientation.x, data.pose.orientation.y, 
-                                                    data.pose.orientation.z, data.pose.orientation.w])
-        
-        # rospy.loginfo(self.y)
-        Hx = self.jacobian(data)
-        #rospy.loginfo(f"Hx: {Hx}")
-
+    def measurement(self, act_feature_msg):
+        self.x = float(x_bar[0,0])
+        self.y = float(x_bar[1,0])
+        self.theta = float(x_bar[2,0])
+        #rospy.loginfo(f"t-1: {[self.x, self.y, self.theta]}")
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
                              self.x_l, self.y_l, self.r_l, self.h_l,
                              self.f_x, self.f_y, self.c_x, self.c_y)
-            #rospy.loginfo(f"P_ip: {P_ip}")
+            
+            rospy.loginfo(f"{self.color}_pred: {P_ip}")
+            rospy.loginfo(f"{self.color}_actual: {act_feature_msg.points}")
+            Hx = self.Hx(self.x, self.y, self.theta,
+                         self.t_cx, self.t_cy, self.t_cz, 
+                         self.x_l, self.y_l, self.r_l, self.h_l,
+                         self.f_x, self.f_y, self.c_x, self.c_y)
+            
+            # Check if all features are within the image frame
             valid_features = []
             valid_features_flag = 0
             for i in range(0, 8, 2):
                 x_pixel = P_ip[i]
                 y_pixel = P_ip[i+1]
+                valid_features.append([x_pixel, y_pixel])
                 if x_pixel >=0  and x_pixel <= self.image_width and y_pixel >= 0 and y_pixel <= self.image_height: 
-                    valid_features.append((x_pixel, y_pixel))
                     valid_features_flag += 1
+            pred_pixels = np.array(valid_features).reshape(-1, 2)
+            pred_pixels = pred_pixels.tolist()
+            
+            # Correspondance Matching
+            act_pixels = []
+            for point in act_feature_msg.points:
+                act_pixels.append([point.x, point.y])
+            if len(act_pixels) < 4 or valid_features_flag < 4:
+                act_pixels = deepcopy(pred_pixels)  
+            
+            #rospy.loginfo(f"pred{pred_pixels}")
+            #rospy.loginfo(f"act{act_pixels}")
+            
+            distances = []
+            ordered_error = deepcopy(pred_pixels)
+            variances = [[24.3121, 0.2612], 
+                         [22.4337, 0.2081],
+                         [25.3811, 2.4115], 
+                         [25.4867, 17.9422]
+                        ]
+            ordered_variance = deepcopy(variances)
+            ordered_pred_pixels = deepcopy(pred_pixels)
+            Hx_list = Hx.tolist()
+            ordered_Hx = deepcopy(Hx_list)
+            for i in range(len(act_pixels)):
+                min_dist = float('inf')
 
-            if valid_features_flag >= 4:
-                #msg = Float64MultiArray()
-                #msg.data = [point for feature in valid_features for point in feature]
-                #self.mmt_pred_pub.publish(msg)
-	        # Exit if less than 4 points
-                if len(act_feature_msg.points) < 4:
-                    #rospy.loginfo("exit")
-                    return
+                for point in pred_pixels:
+                    dist = np.linalg.norm(np.array(act_pixels[i]) - np.array(point))
+                    if dist < min_dist:
+                        min_dist = dist
+                        ordered_error[i] = np.array(act_pixels[i]) - np.array(point)
+                        ordered_pred_pixels[i] = pred_pixels[i]
+                        ordered_variance[i] = variances[i]
+                        ordered_Hx[i] = Hx_list[i]
+                distances.append(min_dist)
 
-                act_pixels = []
-                for point in act_feature_msg.points:
-                    act_pixels.append((point.x, point.y))
-                act_pixels = np.array(act_pixels)
-                #rospy.loginfo(f"Actual feature pixels: {act_pixels}")
+            ordered_error = np.array(ordered_error).flatten().tolist()
+            rospy.loginfo(f"Ordered error {len(act_feature_msg.points)}|{self.color}|: {ordered_error}")
+            
 
-                pred_pixels = np.array(valid_features).reshape(-1, 2)
-                #rospy.loginfo(f"Predicted feature pixels: {pred_pixels}")
-
-                act_pixels = act_pixels.tolist()
-                pred_pixels = pred_pixels.tolist()
-
-                distances = []
-                ordered_error = copy(pred_pixels)
-                for i in range(len(act_pixels)):
-                    min_dist = float('inf')
-
-                    for point in pred_pixels:
-                        dist = np.linalg.norm(np.array(act_pixels[i]) - np.array(point))
-                        if dist < min_dist:
-                            min_dist = dist
-                            ordered_error[i] = np.array(act_pixels[i]) - np.array(point)
-
-                    distances.append(min_dist)
-
-                #rospy.loginfo(f"Ordered error: {ordered_error}") 
-                ordered_error = np.array(ordered_error).flatten().tolist()
-
-        variances = [
-	    24.3121, 0.2612, 22.4337, 0.2081,
-	    25.3811, 2.4115, 25.4867, 17.9422
-	]
-
-        measurement_covariance = np.zeros((8,8))
-        np.fill_diagonal(measurement_covariance, variances)
+        measurement_covariance = zeros(8,8)
+        for i, variance in enumerate(ordered_variance):
+            measurement_covariance[i, i] = variance
         #rospy.loginfo(f"Measurement covariance: {measurement_covariance}")
 
-        return act_pixels, pred_pixels, ordered_error, measurement_covariance, Hx
+        return act_pixels, ordered_pred_pixels, ordered_error, measurement_covariance, ordered_Hx
+
+    def processor(self, act_feature_msg):
+        global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
+        with global_lock:
+            measurement_time = act_feature_msg.header.stamp.to_sec()
+            odom = None
+            
+            # If the message is too old, ignore measurement
+            if measurement_time < time_stamp.to_sec():
+                return
+            
+            # Find the odom message just before the measurement signal
+            for i in range(len(odom_queue)):
+                if measurement_time > odom_queue[-i].header.stamp.to_sec():
+                    odom = odom_queue[-i]
+                    break
+            
+            # If all odom messages are older than the measurement, ignore measurement
+            if not odom:
+                return
+            
+            # Perform prediction
+            self.prediction(odom, act_feature_msg)
+            
+            # Perform measurement prediction
+            
+            self.measurement(act_feature_msg)
+            
+            # Calculate Kalman Gain
+            Kalman = sigma_bar
+            
+            
+
+def odom_callback(odom_msg):
+    global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
+    with global_lock:
+        odom_queue.append(odom_msg)
+        if odom_Retrieved == 0:
+            time_stamp = odom_msg.header.stamp
+        # rospy.loginfo(odom_msg.header.stamp.to_sec())
+        odom_Retrieved = 1
+
 
 def main():
+    global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
     rospy.init_node('measurement_predictor')
     rospy.loginfo('starting measurement_predictor')
-    landmarks = rospy.get_param("landmark")
-    predictors = [MeasurementModel(**landmark) for landmark in landmarks]
+    rospy.Subscriber('/odometry/filtered', Odometry, odom_callback)
+    while(odom_Retrieved == 0): pass # Wait for the first odom message
+    with global_lock:
+        landmarks = rospy.get_param("landmark")
+        predictors = [MeasurementModel(**landmark) for landmark in landmarks]
+    rospy.loginfo(f"first odom msg time stamp: {time_stamp.to_sec()}")
     rospy.spin()
     rospy.loginfo('done')
 
