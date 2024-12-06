@@ -20,7 +20,31 @@ from std_msgs.msg import Header
 global_lock = threading.Lock()
 
 # Define the global variables for prediction x_bar, sigma_bar and time_stamp
-x_bar = 0; sigma_bar = 0; odom_queue = deque(maxlen=10); time_stamp = 0; odom_Retrieved = 0
+x_bar = zeros(3,1); sigma_bar = zeros(3,3); odom_queue = deque(maxlen=10); time_stamp = 0; odom_Retrieved = 0
+
+import numpy as np
+
+def transform(x, y, z, yaw):
+    # Create the rotation matrix (Yaw only, rotation about Z-axis)
+    R_z = np.array([
+        [np.cos(yaw), -np.sin(yaw), 0],
+        [np.sin(yaw),  np.cos(yaw), 0],
+        [0,            0,           1]
+    ])
+
+    # Translation vector
+    t = np.array([x, y, z])
+
+    # Construct the 4x4 transformation matrix
+    T = np.eye(4)
+    T[:3, :3] = R_z  # Top-left 3x3 is the rotation matrix
+    T[:3, 3] = t     # Top-right 3x1 is the translation vector
+
+    return T
+
+# Example values
+x, y, z, yaw = -3, 0, 0.05, 0  # From the provided args
+
 
 def init_functions():
     x, y, theta, t_cx, t_cy, t_cz, x_l, y_l, r_l, h_l, f_x, f_y, c_x, c_y \
@@ -110,6 +134,8 @@ class MeasurementModel:
         self.CameraInfo_Retrieved = 0
         self.odom = Odometry()
         
+        # Initiate the transformation from odom to 
+        
         # Initiate functions
         self.Hx, self.P_ip = init_functions()
 
@@ -146,10 +172,13 @@ class MeasurementModel:
             # rospy.loginfo(f"feature_{self.color}: {corner_msg.header.stamp.to_sec()}, time_stamp: {time_stamp.to_sec()} gap:{dt}")
             # Update predictions if dt is not 0
             if dt != 0:
-                x = odom.pose.pose.position.x
-                y = odom.pose.pose.position.y
-                __, __, theta = euler_from_quaternion([odom.pose.pose.orientation.x, odom.pose.pose.orientation.y, 
-                                                       odom.pose.pose.orientation.z, odom.pose.pose.orientation.w])
+                # x = odom.pose.pose.position.x
+                # y = odom.pose.pose.position.y
+                # __, __, theta = euler_from_quaternion([odom.pose.pose.orientation.x, odom.pose.pose.orientation.y, 
+                #                                        odom.pose.pose.orientation.z, odom.pose.pose.orientation.w])
+                x = float(x_bar[0])
+                y = float(x_bar[1])
+                theta = float(x_bar[2])
                 omega = odom.twist.twist.angular.z
                 vel = odom.twist.twist.linear.x
                 # rospy.loginfo(f"t-1: {[x, y, theta]}")
@@ -174,18 +203,19 @@ class MeasurementModel:
                               [0,                         0.01*vel**2+0.01*omega**2]
                             ])
                 
+                # rospy.loginfo(f"{self.color}|t-1: {x_bar.tolist()}")
                 x_bar = Matrix([[x],[y],[theta]]) + \
                         Matrix([[-vel/omega*sin(theta) + vel/omega*sin(theta+omega*dt)],
                                 [vel/omega*cos(theta) - vel/omega*cos(theta+omega*dt)],
                                 [omega*dt]
                               ])
-                        
+                
                 sigma_t_1_full = Matrix(6, 6, odom.pose.covariance)
                 sigma_t_1 = sigma_t_1_full.extract([0, 1, 5], [0, 1, 5])
                 
                 sigma_bar = G_t*sigma_t_1*G_t.T + V_t*M_t*V_t.T
                 # rospy.loginfo(f"sigma_bar: {sigma_bar}")
-                # rospy.loginfo(f"t: {x_bar.tolist()}")
+                # rospy.loginfo(f"{self.color}|t: {x_bar.tolist()}")
             time_stamp = corner_msg.header.stamp
 
     
@@ -193,7 +223,6 @@ class MeasurementModel:
         self.x = float(x_bar[0,0])
         self.y = float(x_bar[1,0])
         self.theta = float(x_bar[2,0])
-        #rospy.loginfo(f"t-1: {[self.x, self.y, self.theta]}")
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
@@ -226,8 +255,9 @@ class MeasurementModel:
             if len(act_pixels) < 4 or valid_features_flag < 4:
                 act_pixels = deepcopy(pred_pixels)  
             
-            #rospy.loginfo(f"pred{pred_pixels}")
-            #rospy.loginfo(f"act{act_pixels}")
+            if len(act_feature_msg.points) >= 4 and valid_features_flag >= 4:
+                rospy.loginfo(f"pred_{self.color}:{pred_pixels}")
+                rospy.loginfo(f"act_{self.color}:{act_pixels}")
             
             distances = []
             ordered_error = deepcopy(pred_pixels)
@@ -256,16 +286,16 @@ class MeasurementModel:
             ordered_error = np.array(ordered_error).flatten().tolist()
             # rospy.loginfo(f"Ordered error {len(act_feature_msg.points)}|{self.color}|: {ordered_error}")
             
-
+        ordered_variance = np.array(ordered_variance).flatten().tolist()
         measurement_covariance = zeros(8,8)
         for i, variance in enumerate(ordered_variance):
             measurement_covariance[i, i] = variance
-        #rospy.loginfo(f"Measurement covariance: {measurement_covariance}")
-
+        # rospy.loginfo(f"Measurement covariance: {measurement_covariance}")
+        
         return act_pixels, ordered_pred_pixels, ordered_error, measurement_covariance, ordered_Hx
 
     def processor(self, act_feature_msg):
-        global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
+        global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved, global_lock
         with global_lock:
             measurement_time = act_feature_msg.header.stamp.to_sec()
             odom = None
@@ -290,20 +320,32 @@ class MeasurementModel:
             # Perform measurement prediction, ordered_error is a 1D 1x8 list, measurement_covariance is a 8x8 Matrix, ordered_Hx is a 2D 8x3 list
             # actual_pixels is a 2D 4x2 list, ordered_pred_pixels is a 2D 4x2 list
             act_pixels, ordered_pred_pixels, ordered_error, measurement_covariance, ordered_Hx = self.measurement(act_feature_msg)
-
+            
+            
             # Calculate Kalman Gain
             Hx = Matrix(ordered_Hx)
+            # rospy.loginfo(f"Hx: {Hx}")
             partial_kalman = Hx*sigma_bar*Hx.T + measurement_covariance
-            Kalman = sigma_bar*Hx.T*partial_kalman.inv()
+            if partial_kalman.det() == 0:
+                print("Matrix is singular, using regularization or pseudo-inverse")
+                # Regularization
+                epsilon = 1e-6
+                regularized_matrix = partial_kalman + epsilon * eye(partial_kalman.rows)
+                Kalman = sigma_bar * Hx.T * regularized_matrix.inv()
+            else:
+                # Regular inversion
+                Kalman = sigma_bar * Hx.T * partial_kalman.inv()
             
             # Innovation
             error = Matrix(ordered_error)
             x_new = x_bar + Kalman*error
+            rospy.loginfo(f"x_bar: {x_bar}")
             Identity = eye(3)
             sigma_new = (Identity - Kalman*Hx)*sigma_bar
             
             x_bar = x_new; sigma_bar = sigma_new
-
+            rospy.loginfo(f"x_new: {x_bar}")
+            
             # Publish to /ekf_pose
             # Construct the 6x6 covariance message
             cov_6x6 = zeros(6)
@@ -336,7 +378,7 @@ class MeasurementModel:
             
         
 def odom_callback(odom_msg):
-    global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
+    global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved, global_lock
     with global_lock:
         odom_queue.append(odom_msg)
         if odom_Retrieved == 0:
