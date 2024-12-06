@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
 import rospy
-from sympy import symbols, Matrix, sin, cos, atan2, simplify, lambdify, zeros
-from geometry_msgs.msg import PoseStamped, TwistStamped, Twist
+from sympy import symbols, Matrix, sin, cos, atan2, simplify, lambdify, zeros, eye
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseWithCovariance
 from tf2_msgs.msg import TFMessage
 from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import Float64MultiArray
-from tf.transformations import euler_from_quaternion
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
 import tf2_ros
 from opencv_apps.msg import Point2DArrayStamped
 import numpy as np
@@ -15,6 +15,7 @@ from message_filters import ApproximateTimeSynchronizer, Subscriber
 from nav_msgs.msg import Odometry
 import threading
 from collections import deque
+from std_msgs.msg import Header
 
 global_lock = threading.Lock()
 
@@ -115,7 +116,7 @@ class MeasurementModel:
         # Declare the subscribers and publishers
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
         while(self.CameraInfo_Retrieved == 0): pass # Wait for CameraInfo
-        #self.ekf_pub = rospy.Publisher('/pred_feature/'+self.color, Float64MultiArray, queue_size = 1)
+        self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
         self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=1)
 
         # Create tf listener and initiate transform parameters
@@ -199,8 +200,8 @@ class MeasurementModel:
                              self.x_l, self.y_l, self.r_l, self.h_l,
                              self.f_x, self.f_y, self.c_x, self.c_y)
             
-            rospy.loginfo(f"{self.color}_pred: {P_ip}")
-            rospy.loginfo(f"{self.color}_actual: {act_feature_msg.points}")
+            # rospy.loginfo(f"{self.color}_pred: {P_ip}")
+            # rospy.loginfo(f"{self.color}_actual: {act_feature_msg.points}")
             Hx = self.Hx(self.x, self.y, self.theta,
                          self.t_cx, self.t_cy, self.t_cz, 
                          self.x_l, self.y_l, self.r_l, self.h_l,
@@ -253,7 +254,7 @@ class MeasurementModel:
                 distances.append(min_dist)
 
             ordered_error = np.array(ordered_error).flatten().tolist()
-            rospy.loginfo(f"Ordered error {len(act_feature_msg.points)}|{self.color}|: {ordered_error}")
+            # rospy.loginfo(f"Ordered error {len(act_feature_msg.points)}|{self.color}|: {ordered_error}")
             
 
         measurement_covariance = zeros(8,8)
@@ -286,15 +287,54 @@ class MeasurementModel:
             # Perform prediction
             self.prediction(odom, act_feature_msg)
             
-            # Perform measurement prediction
-            
-            self.measurement(act_feature_msg)
-            
-            # Calculate Kalman Gain
-            Kalman = sigma_bar
-            
-            
+            # Perform measurement prediction, ordered_error is a 1D 1x8 list, measurement_covariance is a 8x8 Matrix, ordered_Hx is a 2D 8x3 list
+            # actual_pixels is a 2D 4x2 list, ordered_pred_pixels is a 2D 4x2 list
+            act_pixels, ordered_pred_pixels, ordered_error, measurement_covariance, ordered_Hx = self.measurement(act_feature_msg)
 
+            # Calculate Kalman Gain
+            Hx = Matrix(ordered_Hx)
+            partial_kalman = Hx*sigma_bar*Hx.T + measurement_covariance
+            Kalman = sigma_bar*Hx.T*partial_kalman.inv()
+            
+            # Innovation
+            error = Matrix(ordered_error)
+            x_new = x_bar + Kalman*error
+            Identity = eye(3)
+            sigma_new = (Identity - Kalman*Hx)*sigma_bar
+            
+            x_bar = x_new; sigma_bar = sigma_new
+
+            # Publish to /ekf_pose
+            # Construct the 6x6 covariance message
+            cov_6x6 = zeros(6)
+            cov_6x6[0:2, 0:2] = sigma_new[0:2, 0:2]  # x, y terms
+            cov_6x6[0:2, 5] = sigma_new[0:2, 2]      # Cov(x/y, yaw)
+            cov_6x6[5, 0:2] = sigma_new[2, 0:2]      # Cov(yaw, x/y)
+            cov_6x6[5, 5] = sigma_new[2, 2]          # yaw term
+            covariance_list = np.array(cov_6x6).flatten().tolist()
+            
+            # Create and populate the PoseWithCovariance message
+            pose_msg = PoseWithCovariance()
+            pose_msg.pose.position.x = float(x_new[0])
+            pose_msg.pose.position.y = float(x_new[1])
+            quaternion = quaternion_from_euler(0, 0, float(x_new[2]))  # roll, pitch, yaw
+            pose_msg.pose.orientation.x = quaternion[0]
+            pose_msg.pose.orientation.y = quaternion[1]
+            pose_msg.pose.orientation.z = quaternion[2]
+            pose_msg.pose.orientation.w = quaternion[3]
+            pose_msg.covariance = covariance_list
+            
+            PoseWithCovarianceStamped_msg = PoseWithCovarianceStamped(
+                                header = Header(
+	                            stamp = time_stamp,
+	                            frame_id = 'ekf'
+                                                ),
+                                pose = pose_msg
+                            )
+            
+            self.ekf_pub.publish(PoseWithCovarianceStamped_msg)
+            
+        
 def odom_callback(odom_msg):
     global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
     with global_lock:
