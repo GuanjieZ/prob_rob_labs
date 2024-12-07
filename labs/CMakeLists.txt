@@ -16,7 +16,10 @@ install(DIRECTORY launch worlds
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
-catkin_install_python(PROGRAMS bin/ekf_landmar_loc
+catkin_install_python(PROGRAMS bin/ekf_tf
+                      DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
+catkin_install_python(PROGRAMS bin/ekf_landmark_loc
                       DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
 catkin_install_python(PROGRAMS bin/satellite_simu
