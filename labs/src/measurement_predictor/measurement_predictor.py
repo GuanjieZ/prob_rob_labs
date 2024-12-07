@@ -144,7 +144,7 @@ class MeasurementModel:
         while(self.CameraInfo_Retrieved == 0): pass # Wait for CameraInfo
         self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
         self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=1)
-        self.gt_sub = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
+        # self.gt_sub = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
 
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
