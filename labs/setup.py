@@ -9,7 +9,7 @@ def read(fname):
 
 # fetch values from package.xml
 setup_args = generate_distutils_setup(
-    packages=['image_mean_feature_x', 'flaky_door_opener', 'opendoor_movebot', 'cond_prob', 'state', 'odom_tracking', 'calc_error', 'measurement_predictor', 'corresp_matcher', 'satellite_simu'],
+    packages=['image_mean_feature_x', 'flaky_door_opener', 'opendoor_movebot', 'cond_prob', 'state', 'odom_tracking', 'calc_error', 'measurement_predictor', 'corresp_matcher', 'satellite_simu', 'ekf_landmar_loc'],
     package_dir={'': 'src'},
     platforms=['ROS'],
     long_description="Python nodes for Probabilistic Robotics lab"

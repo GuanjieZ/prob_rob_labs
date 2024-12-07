@@ -143,7 +143,7 @@ class MeasurementModel:
         self.CameraInfo_sub = rospy.Subscriber('/front/left/camera_info', CameraInfo, self.update_CameraInfo)
         while(self.CameraInfo_Retrieved == 0): pass # Wait for CameraInfo
         self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
-        self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=1)
+        self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=5)
         # self.gt_sub = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
 
         # Create tf listener and initiate transform parameters
@@ -182,7 +182,7 @@ class MeasurementModel:
                 theta = float(x_bar[2])
                 omega = odom.twist.twist.angular.z
                 vel = odom.twist.twist.linear.x
-                rospy.loginfo(f"t-1_{self.color}: {[x, y, theta]}, dt: {dt}")
+                # rospy.loginfo(f"t-1_{self.color}: {[x, y, theta]}, dt: {dt}")
                 
                 G_t = Matrix([[1, 0, -vel/omega*cos(theta)+vel/omega*cos(theta+dt*omega)], 
                               [0, 1, -vel/omega*sin(theta)+vel/omega*sin(theta+dt*omega)],
@@ -216,7 +216,7 @@ class MeasurementModel:
                 
                 sigma_bar = G_t*sigma_t_1*G_t.T + V_t*M_t*V_t.T
                 # rospy.loginfo(f"sigma_bar: {sigma_bar}")
-                rospy.loginfo(f"{self.color}|t: {x_bar.tolist()}")
+                # rospy.loginfo(f"{self.color}|t: {x_bar.tolist()}")
             time_stamp = corner_msg.header.stamp
 
     
@@ -374,7 +374,7 @@ class MeasurementModel:
             PoseWithCovarianceStamped_msg = PoseWithCovarianceStamped(
                                 header = Header(
 	                            stamp = time_stamp,
-	                            frame_id = 'ekf'
+	                            frame_id = 'odom'
                                                 ),
                                 pose = pose_msg
                             )
@@ -396,7 +396,7 @@ def main():
     global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
     rospy.init_node('measurement_predictor')
     rospy.loginfo('starting measurement_predictor')
-    rospy.Subscriber('/odometry/filtered', Odometry, odom_callback, queue_size=1)
+    rospy.Subscriber('/odometry/filtered', Odometry, odom_callback, queue_size=5)
     while(odom_Retrieved == 0): pass # Wait for the first odom message
     with global_lock:
         landmarks = rospy.get_param("landmark")
