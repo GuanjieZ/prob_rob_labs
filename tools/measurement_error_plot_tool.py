@@ -8,7 +8,7 @@ current_dir = Path(__file__).resolve()
 data_path = current_dir.parent.parent
 
 # Read the data from the text file
-file_name = str(data_path)+"/labs/datalog/.txt"
+file_name = str(data_path)+"/labs/datalog/red.txt"
 data = np.loadtxt(file_name, delimiter=",")
 
 variances = np.var(data, axis=0)

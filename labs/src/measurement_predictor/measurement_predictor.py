@@ -374,7 +374,7 @@ class MeasurementModel:
             PoseWithCovarianceStamped_msg = PoseWithCovarianceStamped(
                                 header = Header(
 	                            stamp = time_stamp,
-	                            frame_id = 'odom'
+	                            frame_id = 'map'
                                                 ),
                                 pose = pose_msg
                             )
