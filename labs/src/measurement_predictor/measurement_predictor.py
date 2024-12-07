@@ -144,6 +144,7 @@ class MeasurementModel:
         while(self.CameraInfo_Retrieved == 0): pass # Wait for CameraInfo
         self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
         self.act_feature_sub = rospy.Subscriber('/goodfeature_'+self.color+'/corners', Point2DArrayStamped, self.processor, queue_size=1)
+        self.gt_sub = rospy.Subscriber('/jackal/ground_truth/pose', PoseStamped, queue_size=1)
 
         # Create tf listener and initiate transform parameters
         self.tfBuffer = tf2_ros.Buffer()
@@ -181,7 +182,7 @@ class MeasurementModel:
                 theta = float(x_bar[2])
                 omega = odom.twist.twist.angular.z
                 vel = odom.twist.twist.linear.x
-                # rospy.loginfo(f"t-1: {[x, y, theta]}")
+                rospy.loginfo(f"t-1_{self.color}: {[x, y, theta]}, dt: {dt}")
                 
                 G_t = Matrix([[1, 0, -vel/omega*cos(theta)+vel/omega*cos(theta+dt*omega)], 
                               [0, 1, -vel/omega*sin(theta)+vel/omega*sin(theta+dt*omega)],
@@ -215,7 +216,7 @@ class MeasurementModel:
                 
                 sigma_bar = G_t*sigma_t_1*G_t.T + V_t*M_t*V_t.T
                 # rospy.loginfo(f"sigma_bar: {sigma_bar}")
-                # rospy.loginfo(f"{self.color}|t: {x_bar.tolist()}")
+                rospy.loginfo(f"{self.color}|t: {x_bar.tolist()}")
             time_stamp = corner_msg.header.stamp
 
     
@@ -223,6 +224,7 @@ class MeasurementModel:
         self.x = float(x_bar[0,0])
         self.y = float(x_bar[1,0])
         self.theta = float(x_bar[2,0])
+        # rospy.loginfo([self.x, self.y, self.theta])
         if self.CameraInfo_Retrieved == 1:
             P_ip = self.P_ip(self.x, self.y, self.theta,
                              self.t_cx, self.t_cy, self.t_cz, 
@@ -255,16 +257,12 @@ class MeasurementModel:
             if len(act_pixels) < 4 or valid_features_flag < 4:
                 act_pixels = deepcopy(pred_pixels)  
             
-            if len(act_feature_msg.points) >= 4 and valid_features_flag >= 4:
-                rospy.loginfo(f"pred_{self.color}:{pred_pixels}")
-                rospy.loginfo(f"act_{self.color}:{act_pixels}")
-            
             distances = []
             ordered_error = deepcopy(pred_pixels)
-            variances = [[24.3121, 0.2612], 
-                         [22.4337, 0.2081],
-                         [25.3811, 2.4115], 
-                         [25.4867, 17.9422]
+            variances = [[100, 100], 
+                         [100, 100],
+                         [100, 100], 
+                         [100, 100]
                         ]
             ordered_variance = deepcopy(variances)
             ordered_pred_pixels = deepcopy(pred_pixels)
@@ -284,6 +282,10 @@ class MeasurementModel:
                 distances.append(min_dist)
 
             ordered_error = np.array(ordered_error).flatten().tolist()
+            # if len(act_feature_msg.points) >= 4 and valid_features_flag >= 4:
+                # rospy.loginfo(f"pred_{self.color}:{ordered_pred_pixels}")
+                # rospy.loginfo(f"act_{self.color}:{act_pixels}")
+                # rospy.loginfo(f"error_{self.color}: {ordered_error}")
             # rospy.loginfo(f"Ordered error {len(act_feature_msg.points)}|{self.color}|: {ordered_error}")
             
         ordered_variance = np.array(ordered_variance).flatten().tolist()
@@ -324,27 +326,30 @@ class MeasurementModel:
             
             # Calculate Kalman Gain
             Hx = Matrix(ordered_Hx)
-            # rospy.loginfo(f"Hx: {Hx}")
             partial_kalman = Hx*sigma_bar*Hx.T + measurement_covariance
-            if partial_kalman.det() == 0:
-                print("Matrix is singular, using regularization or pseudo-inverse")
-                # Regularization
-                epsilon = 1e-6
-                regularized_matrix = partial_kalman + epsilon * eye(partial_kalman.rows)
-                Kalman = sigma_bar * Hx.T * regularized_matrix.inv()
-            else:
-                # Regular inversion
-                Kalman = sigma_bar * Hx.T * partial_kalman.inv()
-            
+            partial_kalman = np.array(partial_kalman, dtype=float)
+            U, s, VT = np.linalg.svd(partial_kalman)
+            max_value = max(s)
+            threshold = 0.01 * max_value
+            s[s < threshold] = 0
+            s_new = np.zeros_like(partial_kalman)
+            np.fill_diagonal(s_new, s)
+            partial_kalman_new = U @ s_new @ VT
+            partial_kalman_new = np.linalg.pinv(partial_kalman_new).tolist()
+            partial_kalman_new = Matrix(partial_kalman_new)
+            Kalman = sigma_bar * Hx.T * partial_kalman_new
+
             # Innovation
             error = Matrix(ordered_error)
             x_new = x_bar + Kalman*error
-            rospy.loginfo(f"x_bar: {x_bar}")
+            # rospy.loginfo(f"error*kalman: {Kalman*error}")
+            # rospy.loginfo(f"kalman: {Kalman}")
+            # rospy.loginfo(f"error: {error}")
             Identity = eye(3)
             sigma_new = (Identity - Kalman*Hx)*sigma_bar
             
             x_bar = x_new; sigma_bar = sigma_new
-            rospy.loginfo(f"x_new: {x_bar}")
+            # rospy.loginfo(f"x_new: {x_bar}")
             
             # Publish to /ekf_pose
             # Construct the 6x6 covariance message
@@ -378,7 +383,7 @@ class MeasurementModel:
             
         
 def odom_callback(odom_msg):
-    global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved, global_lock
+    global time_stamp, odom_queue, odom_Retrieved, global_lock
     with global_lock:
         odom_queue.append(odom_msg)
         if odom_Retrieved == 0:
@@ -391,7 +396,7 @@ def main():
     global x_bar, sigma_bar, time_stamp, odom_queue, odom_Retrieved
     rospy.init_node('measurement_predictor')
     rospy.loginfo('starting measurement_predictor')
-    rospy.Subscriber('/odometry/filtered', Odometry, odom_callback)
+    rospy.Subscriber('/odometry/filtered', Odometry, odom_callback, queue_size=1)
     while(odom_Retrieved == 0): pass # Wait for the first odom message
     with global_lock:
         landmarks = rospy.get_param("landmark")
