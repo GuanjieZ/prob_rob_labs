@@ -259,10 +259,10 @@ class MeasurementModel:
             
             distances = []
             ordered_error = deepcopy(pred_pixels)
-            variances = [[100, 100], 
-                         [100, 100],
-                         [100, 100], 
-                         [100, 100]
+            variances = [[162.3435, 0.6901], 
+                         [139.6728, 0.7173],
+                         [139.8779, 3.5183], 
+                         [144.2625, 5.5887]
                         ]
             ordered_variance = deepcopy(variances)
             ordered_pred_pixels = deepcopy(pred_pixels)
