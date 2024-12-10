@@ -13,7 +13,7 @@ class OdomTracker:
     def __init__(self):
         self.joint_state_sub = Subscriber('/joint_states', JointState)
         self.imu_sub = Subscriber('/imu/data', Imu)
-        self.cmd_vel_sub = Subscriber('/cmd_vel', Twist)
+        self.cmd_vel_sub = Subscriber('jackal_velocity_controller/cmd_vel', Twist)
         self.odom_pub = rospy.Publisher('/ekf_odom', Odometry, queue_size=10)
 
         self.sync = ApproximateTimeSynchronizer([
@@ -48,13 +48,24 @@ class OdomTracker:
 
     def ekf(self, delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g):
         theta = self.state[0][0]
-        u = np.array([[u_v], [u_w]])
-        a_v = 0.1**(delta_t/0.45)
-        a_w = 0.1**(delta_t/0.35)
+        x = self.state[1][0]
+        y = self.state[2][0]
+        v = self.state[3][0]
+        omega = self.state[4][0]
+        #u = np.array([[u_v], [u_w]])
+        a_v = 0.1**(delta_t/0.25)
+        a_w = 0.1**(delta_t/0.14)
         G_v = 1
         G_w = 1.34
 
-        A = np.array([
+        x_bar = np.zeros((5,1))
+        x_bar[0][0] = theta + omega*delta_t
+        x_bar[1][0] = x + v*delta_t*np.cos(theta)
+        x_bar[2][0] = y + v*delta_t*np.sin(theta)
+        x_bar[3][0] = a_v*v + G_v*(1-a_v)*u_v
+        x_bar[4][0] = a_w*omega + G_w*(1-a_w)*u_w
+
+        G_x = np.array([
                 [1, 0, 0, 0,                     delta_t],
                 [0, 1, 0, delta_t*np.cos(theta), 0],
                 [0, 0, 1, delta_t*np.sin(theta), 0],
@@ -62,7 +73,7 @@ class OdomTracker:
                 [0, 0, 0, 0,                     a_w],
         ])
 
-        B = np.array([
+        G_u = np.array([
                 [0,           0],
                 [0,           0],
                 [0,           0],
@@ -71,7 +82,7 @@ class OdomTracker:
         ])
 
         #rospy.loginfo(B)
-
+        '''
         G_x = np.array([
                 [0, 0, 0,  0,                     0],
                 [0, 0, 0, -delta_t*np.sin(theta), 0],
@@ -81,6 +92,7 @@ class OdomTracker:
         ])
 
         G_u = B
+        '''
 
         sigma_u = np.array([
                 [0.1, 0],
@@ -88,7 +100,7 @@ class OdomTracker:
         ])
 
         #rospy.loginfo(u)
-        x_bar = np.dot(A, self.state) + np.dot(B, u)
+        #x_bar = np.dot(A, self.state) + np.dot(B, u)
         #self.state = x_bar
         #rospy.loginfo(x_bar)
 
