@@ -1,5 +1,11 @@
 <?xml version="1.0"?>
 <launch>
+  <arg name="satellite_count" default="10" />
+  
   <node pkg="prob_rob_labs" type="satellite_simu" name="satellite_simu" output="screen">
+    <param name="satellite_count" value="$(arg satellite_count)" />
   </node>
+  
+    <!-- Launch the state publisher node-->
+  <include file="$(find prob_rob_labs)/launch/state.launch"/>
 </launch>
