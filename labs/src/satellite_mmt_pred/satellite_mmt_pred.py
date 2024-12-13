@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 import rospy
-from message_filters import Subscriber
 from prob_rob_labs.msg import SatelliteState  # Import your custom message
-from collections import deque
 import time
+import threading
+import hashlib
 
 class SatelliteStateSynchronizer:
     """
-    Collect messages from multiple topics and process them when 4 or more are available.
+    Collect as many messages as possible within a timeout window, then process them.
     """
     def __init__(self):
         # Initialize the ROS node
@@ -16,63 +16,83 @@ class SatelliteStateSynchronizer:
         # List of topic names for /Satellite_1_local to /Satellite_10_local
         self.topic_names = [f"/Satellite_{i}_local" for i in range(1, 11)]
 
-        # Create subscribers for each topic
-        self.subscribers = []
-        for topic in self.topic_names:
-            sub = Subscriber(topic, SatelliteState)
-            sub.registerCallback(self.message_callback, topic)
-            self.subscribers.append(sub)
+        # Message buffer and tracking for duplicates
+        self.message_buffer = {}  # {topic: (msg, timestamp)}
+        self.processed_messages = set()  # Hashes of processed messages
 
-        # Buffer to hold incoming messages
-        self.message_buffer = {}
-        self.timeout = 0.01  # Time window in seconds to collect messages
+        # Timeout settings
+        self.timeout = 0.1  # Time window in seconds
+        self.lock = threading.Lock()  # To make buffer access thread-safe
+
+        # Start a timer thread to process messages periodically
+        self.timer_thread = threading.Thread(target=self.timer_callback)
+        self.timer_thread.daemon = True
+        self.timer_thread.start()
+
+        # Subscribe to each topic
+        for topic in self.topic_names:
+            rospy.Subscriber(topic, SatelliteState, self.message_callback, callback_args=topic, queue_size=1)
 
         rospy.loginfo("Satellite state synchronizer node started.")
         rospy.spin()
 
+    def generate_message_hash(self, msg):
+        """
+        Generate a unique hash for the message based on its content.
+        """
+        msg_data = f"{msg.x},{msg.y},{msg.z},{msg.travel_time}"
+        return hashlib.md5(msg_data.encode()).hexdigest()
+
     def message_callback(self, msg, topic):
         """
-        Callback for individual topic messages. Adds messages to the buffer.
+        Callback for each topic to store the latest message.
         """
         current_time = time.time()
+        message_hash = self.generate_message_hash(msg)
 
-        # Update the buffer with the latest message and timestamp
-        self.message_buffer[topic] = (msg, current_time)
+        with self.lock:
+            # Avoid duplicates by checking hash
+            if message_hash in self.processed_messages:
+                rospy.logdebug(f"Duplicate message detected from {topic}.")
+                return
 
-        # Check if we have enough messages to process
-        self.process_messages()
+            # Add the message to the buffer
+            self.message_buffer[topic] = (msg, current_time)
+            self.processed_messages.add(message_hash)
+            rospy.logdebug(f"Message added to buffer from {topic}.")
+
+    def timer_callback(self):
+        """
+        Periodically process messages every self.timeout seconds.
+        """
+        while not rospy.is_shutdown():
+            time.sleep(self.timeout)  # Wait for the timeout window
+            with self.lock:
+                if self.message_buffer:
+                    self.process_messages()
+                else:
+                    rospy.logdebug("No messages to process in this window.")
 
     def process_messages(self):
         """
-        Process buffered messages if 4 or more are available within the timeout window.
+        Process all buffered messages and clear the buffer.
         """
-        current_time = time.time()
+        rospy.loginfo("Processing synchronized messages:")
+        for topic, (msg, timestamp) in self.message_buffer.items():
+            msg_time = msg.header.stamp.to_sec() if hasattr(msg, 'header') else "No timestamp"
+            rospy.loginfo(
+                f"Topic={topic}, x={msg.x}, y={msg.y}, z={msg.z}, travel_time={msg.travel_time}, timestamp={msg_time}"
+            )
 
-        # Filter messages within the timeout window
-        valid_messages = [
-            (topic, msg) for topic, (msg, timestamp) in self.message_buffer.items()
-            if current_time - timestamp <= self.timeout
-        ]
-
-        # Process only if 4 or more messages are available
-        if len(valid_messages) >= 4:
-            rospy.loginfo("Processing synchronized messages:")
-            for i, (topic, msg) in enumerate(valid_messages):
-                timestamp = msg.header.stamp.to_sec() if hasattr(msg, 'header') else "No timestamp"
-                rospy.loginfo(
-                    f"{i+1}: Topic={topic}, x={msg.x}, y={msg.y}, z={msg.z}, travel_time={msg.travel_time}, timestamp={timestamp}"
-                )
-
-            # Clear the buffer after processing
-            self.message_buffer.clear()
-
+        # Clear the buffer and retain recent processed hashes
+        self.message_buffer.clear()
+        rospy.loginfo("Buffer cleared, waiting for the next timeout window.")
 
 def main():
     try:
         SatelliteStateSynchronizer()
     except rospy.ROSInterruptException:
         rospy.loginfo("Satellite state synchronizer node terminated.")
-
 
 if __name__ == "__main__":
     main()
