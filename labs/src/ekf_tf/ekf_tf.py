@@ -8,6 +8,7 @@ class EKF_TF:
     def __init__(self):
         # EKF Pose Subscriber
         self.ekf_pose_sub = rospy.Subscriber('/ekf_pose', PoseWithCovarianceStamped, self.ekf_pose_callback)
+        self.trigger_pub = rospy.Publisher('/covariance_trigger', Empty, queue_size = 10)
         
         # TF Listener for odom → base_link transform
         self.tf_buffer = tf2_ros.Buffer()
@@ -85,6 +86,8 @@ class EKF_TF:
             transform.transform.rotation.w = map_to_odom_orientation[3]
 
             self.tf_broadcaster.sendTransform(transform)
+
+            self.trigger_pub.publish(Empty())
 
         except (tf2_ros.LookupException, tf2_ros.ExtrapolationException):
             rospy.logwarn_throttle(1.0, "Waiting for odom → base_link transform.")

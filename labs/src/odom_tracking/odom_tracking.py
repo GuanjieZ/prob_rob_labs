@@ -14,6 +14,8 @@ class OdomTracker:
         self.joint_state_sub = Subscriber('/joint_states', JointState)
         self.imu_sub = Subscriber('/imu/data', Imu)
         self.cmd_vel_sub = Subscriber('jackal_velocity_controller/cmd_vel', Twist)
+        self.covariance_reset_sub = Subsciber('/covariance_trigger', Empty, self.covariance_reset)
+
         self.odom_pub = rospy.Publisher('/ekf_odom', Odometry, queue_size=10)
 
         self.sync = ApproximateTimeSynchronizer([
@@ -45,6 +47,10 @@ class OdomTracker:
         self.prev_time = current_time
 
         self.ekf(delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g)
+
+    def covariance_reset(self, msg):
+        self.sigma_x[1][1] = 0
+        self.sigma_x[2][2] = 0
 
     def ekf(self, delta_t, u_v, u_w, w_fl, w_fr, w_rl, w_rr, w_g):
         theta = self.state[0][0]
