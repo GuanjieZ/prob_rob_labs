@@ -84,7 +84,7 @@ class robot:
     def update_pose(self, gt_pose_msg):
         self.x = gt_pose_msg.pose.position.x
         self.y = gt_pose_msg.pose.position.y
-        self.z = gt_pose_msg.pose.position.y
+        self.z = gt_pose_msg.pose.position.z
         
 def broadcast_satellite_signal(instances, robot, lock):
     def timer_callback(event):
