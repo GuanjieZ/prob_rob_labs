@@ -22,7 +22,7 @@ class SatelliteStateSynchronizer:
         # List of topic names for /Satellite_1_local to /Satellite_10_local
         self.topic_names = [f"/Satellite_{i}_local" for i in range(1, 11)]
 
-        self.odom_sub = rospy.Subscriber('/odom_pose', Odometry, self.odom_callback)
+        self.odom_sub = rospy.Subscriber('/ekf_odom', Odometry, self.odom_callback)
         self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
 
         self.x = 0
@@ -31,7 +31,7 @@ class SatelliteStateSynchronizer:
         self.theta = 0
         
         self.x_bar = np.zeros((4,1))
-        self.sigma_bar = np.zeros((4,4))
+        self.sigma_bar = np.eye(4)
 
         # Message buffer and tracking for duplicates
         self.message_buffer = {}
@@ -114,7 +114,7 @@ class SatelliteStateSynchronizer:
         """
         if len(self.message_buffer) < 4:
             return
-        rospy.loginfo("Processing synchronized messages:")
+        # rospy.loginfo("Processing synchronized messages:")
         predicted_distances = []
         act_distances = []
         satellite_positions = []
@@ -128,7 +128,7 @@ class SatelliteStateSynchronizer:
             satellite_positions.append((sat_x, sat_y, sat_z))
             travel_time = msg.travel_time
 
-            predicted_dist =  np.sqrt((self.x - sat_x)**2 + (self.y - sat_y)**2 + (self.z - sat_z)**2)
+            predicted_dist =  np.sqrt((self.x_bar[0] - sat_x)**2 + (self.x_bar[1] - sat_y)**2 + (self.x_bar[2] - sat_z)**2)
             predicted_distances.append(predicted_dist)
 
             c = 3e8
@@ -136,7 +136,7 @@ class SatelliteStateSynchronizer:
             act_distances.append(act_dist)
 
         error = np.array([x - y for x, y in zip(act_distances, predicted_distances)])
-        # rospy.loginfo(f"error={error}")
+        rospy.loginfo(f"error={error}")
         # Clear the buffer and retain recent processed hashes
         self.message_buffer.clear()
         # rospy.loginfo("Buffer cleared, waiting for the next timeout window.")
@@ -147,7 +147,7 @@ class SatelliteStateSynchronizer:
         # Measurement covariance is manually setup in stellite_simu, which is in the form of noise in light speed
         measurement_covariance = np.zeros((error.shape[0],error.shape[0]))
         for i in range(measurement_covariance.shape[0]):
-            measurement_covariance[i, i] = 5
+            measurement_covariance[i, i] = 2e-8
         
         self.ekf(error, H, measurement_covariance)
         
@@ -170,10 +170,10 @@ class SatelliteStateSynchronizer:
         # Update covariance estimate
         I = np.eye(self.sigma_bar.shape[0])
         self.sigma_bar = (I - K @ H) @ self.sigma_bar
-
+        
         self.publish_pose()
 
-        #rospy.loginfo(f"x_bar: {self.x_bar}")
+        rospy.loginfo(f"x_bar: {self.x_bar}")
         #rospy.loginfo(f"sigma_bar: {self.sigma_bar}")
 
     def compute_jacobian(self, satellite_positions):
