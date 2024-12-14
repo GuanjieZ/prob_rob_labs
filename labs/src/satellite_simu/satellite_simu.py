@@ -101,7 +101,8 @@ def main():
     rospy.loginfo('starting satellite_simu')
     lock = threading.Lock()
     # Create 10 satellite instances
-    c = 3e8 # c is the actual speed of light, remains constant for each trial of simulation
+    mean = 0; std_dev = 5
+    c = 3e8+np.random.normal(mean, std_dev) # c is the actual speed of light, remains constant for each trial of simulation
     satellite_count = rospy.get_param("~satellite_count", 10)
     satellite_instances = [Satellite(i, c) for i in range(1,satellite_count+1)]
     

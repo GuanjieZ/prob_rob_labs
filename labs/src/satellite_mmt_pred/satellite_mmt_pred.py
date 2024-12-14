@@ -20,6 +20,9 @@ class SatelliteStateSynchronizer:
         self.x = 0
         self.y = 0
         self.z = 0
+        
+        self.x_bar = np.zeros((3,1))
+        self.sigma_bar = np.zeros((3,3))
 
         # Message buffer and tracking for duplicates
         self.message_buffer = {}  # {topic: (msg, timestamp)}
@@ -107,21 +110,40 @@ class SatelliteStateSynchronizer:
             act_distances.append(act_dist)
 
         error = np.array([x - y for x, y in zip(act_distances, predicted_distances)])
-        #rospy.loginfo(f"error={error}")
+        # rospy.loginfo(f"error={error}")
         # Clear the buffer and retain recent processed hashes
         self.message_buffer.clear()
-        rospy.loginfo("Buffer cleared, waiting for the next timeout window.")
-        #rospy.loginfo(f"satellite_positions: {satellite_positions}")   
+        # rospy.loginfo("Buffer cleared, waiting for the next timeout window.")
+        # rospy.loginfo(f"satellite_positions: {satellite_positions}")   
         H = self.compute_jacobian(satellite_positions)
-        return error, H
-   
-    def prediction(self):
-        rospy.loginfo("prediction function")
+        
+        # Perform ekf here
+        # Measurement covariance is manually setup in stellite_simu, which is in the form of noise in light speed
+        measurement_covariance = np.zeros((error.shape[0],error.shape[0]))
+        for i in enumerate(measurement_covariance):
+            measurement_covariance[i, i] = 5
+        
+        self.ekf(error, H, measurement_covariance)
+        
+        
+        
+    def ekf(self, error, H, R):
 
-    def ekf(self):
-        #rospy.loginfo("ekf function")
-        error, H = self.process_messages()
-        rospy.loginfo(f"{error}, {H}")
+        # EKF Update Equations
+        H_transpose = H.T
+
+        # Innovation covariance: S = H * sigma_bar * H.T + R
+        S = H @ self.sigma_bar @ H_transpose + R
+
+        # Kalman gain: K = sigma_bar * H.T * S^-1
+        K = self.sigma_bar @ H_transpose @ np.linalg.inv(S)
+
+        # Update state estimate: x_bar = x_bar + K * error
+        self.x_bar += K @ error.reshape(-1, 1)
+
+        # Update covariance estimate: sigma_bar = (I - K * H) * sigma_bar
+        I = np.eye(self.sigma_bar.shape[0])
+        self.sigma_bar = (I - K @ H) @ self.sigma_bar
 
     def compute_jacobian(self, satellite_positions):
         num_satellites = len(satellite_positions)
