@@ -7,14 +7,14 @@ from message_filters import ApproximateTimeSynchronizer, Subscriber
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from tf.transformations import quaternion_from_euler
-
+from std_msgs.msg import Empty
 
 class OdomTracker:
     def __init__(self):
         self.joint_state_sub = Subscriber('/joint_states', JointState)
         self.imu_sub = Subscriber('/imu/data', Imu)
         self.cmd_vel_sub = Subscriber('jackal_velocity_controller/cmd_vel', Twist)
-        self.covariance_reset_sub = Subsciber('/covariance_trigger', Empty, self.covariance_reset)
+        self.covariance_reset_sub = rospy.Subscriber('/covariance_trigger', Empty, self.covariance_reset)
 
         self.odom_pub = rospy.Publisher('/ekf_odom', Odometry, queue_size=10)
 
@@ -153,7 +153,7 @@ class OdomTracker:
                 sigma_x_bar
         )
         self.sigma_x = new_sigma_x
-        rospy.loginfo(self.sigma_x)
+        #rospy.loginfo(self.sigma_x)
 
         self.publish(delta_t)
 

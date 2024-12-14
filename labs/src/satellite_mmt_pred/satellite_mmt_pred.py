@@ -6,8 +6,9 @@ import threading
 import hashlib
 import numpy as np
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseWithCovariance
-from tf.transformations import quaternion_from_euler
+from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from std_msgs.msg import Header
+from nav_msgs.msg import Odometry
 
 
 class SatelliteStateSynchronizer:
@@ -21,11 +22,13 @@ class SatelliteStateSynchronizer:
         # List of topic names for /Satellite_1_local to /Satellite_10_local
         self.topic_names = [f"/Satellite_{i}_local" for i in range(1, 11)]
 
+        self.odom_sub = rospy.Subscriber('/odom_pose', Odometry, self.odom_callback)
         self.ekf_pub = rospy.Publisher('/ekf_pose', PoseWithCovarianceStamped, queue_size = 1)
 
         self.x = 0
         self.y = 0
         self.z = 0
+        self.theta = 0
         
         self.x_bar = np.zeros((4,1))
         self.sigma_bar = np.zeros((4,4))
@@ -87,6 +90,23 @@ class SatelliteStateSynchronizer:
                     #self.ekf()
                 else:
                     rospy.logdebug("No messages to process in this window.")
+
+    def odom_callback(self, msg):
+        with self.lock:
+            self.x = msg.pose.pose.position.x
+            self.y = msg.pose.pose.position.y
+            self.z = msg.pose.pose.position.z
+            _, _, self.theta = euler_from_quaternion([msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, 
+                                                      msg.pose.pose.orientation.z, msg.pose.pose.orientation.w])
+
+
+            self.x_bar[0] = self.x
+            self.x_bar[1] = self.y
+            self.x_bar[2] = self.z
+            self.x_bar[3] = self.theta
+
+            process_noise = np.eye(4) * 0.1
+            self.sigma_bar = self.sigma_bar + process_noise
 
     def process_messages(self):
         """
@@ -198,7 +218,7 @@ class SatelliteStateSynchronizer:
 
         PoseWithCovarianceStamped_msg = PoseWithCovarianceStamped(
                             header = Header(
-                                stamp = time_stamp,
+                                stamp = rospy.Time.now(),
                                 frame_id = 'map'
                                             ),
                             pose = pose_msg
