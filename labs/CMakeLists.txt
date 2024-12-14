@@ -44,6 +44,9 @@ install(DIRECTORY launch worlds
 )
 
 ## Install Python scripts
+catkin_install_python(PROGRAMS bin/gps_error
+                      DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+
 catkin_install_python(PROGRAMS bin/satellite_mmt_pred
                       DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
 
